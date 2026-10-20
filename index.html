@@ -2115,59 +2115,91 @@
 
     let scannerCameraFacingMode = "environment"; // Kamera belakang sebagai default
     let scannerCameraStarting = false;
+    let lastScannerValue = '';
+    let lastScannerAt = 0;
+
+    function normalizeScanValue(value) {
+      return String(value == null ? '' : value).trim().replace(/\s+/g, '').toUpperCase();
+    }
+
+    function handleDecodedScan(decodedText) {
+      const code = String(decodedText || '').trim();
+      if (!code) return;
+      const now = Date.now();
+      // Hindari satu barcode tercatat berkali-kali saat tetap berada di depan kamera.
+      if (normalizeScanValue(code) === normalizeScanValue(lastScannerValue) && now - lastScannerAt < 2500) return;
+      lastScannerValue = code;
+      lastScannerAt = now;
+      const input = document.getElementById('opname-input-code');
+      if (input) input.value = code;
+      playBeepSound();
+      processScanOpname(true);
+    }
 
     async function startCameraScanner(preferredMode) {
       const qrDiv = document.getElementById('qr-reader');
       if (!qrDiv) return;
+      if (typeof Html5Qrcode === 'undefined') {
+        showToast('Library scanner gagal dimuat. Periksa koneksi internet lalu refresh.', 'error');
+        return;
+      }
       qrDiv.classList.remove('hidden');
-
       if (preferredMode) scannerCameraFacingMode = preferredMode;
-      if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
       if (scannerCameraStarting) return;
       scannerCameraStarting = true;
 
-      const config = { fps: 10, qrbox: { width: 220, height: 220 } };
-      const onDecoded = (decodedText) => {
-        const input = document.getElementById('opname-input-code');
-        if (input) input.value = decodedText;
-        processScanOpname();
-      };
-
       try {
-        await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded);
-        updateCameraSwitchLabel();
-      } catch (firstError) {
-        // Jika kamera pilihan tidak tersedia, coba kamera lawan arah.
-        const fallbackMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
-        try {
-          scannerCameraFacingMode = fallbackMode;
-          await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded);
-          updateCameraSwitchLabel();
-          showToast(scannerCameraFacingMode === 'environment' ? 'Kamera belakang aktif.' : 'Kamera depan aktif.', 'info');
-        } catch (secondError) {
-          qrDiv.classList.add('hidden');
-          showToast('Gagal membuka kamera. Pastikan izin kamera diberikan dan akses menggunakan HTTPS.', 'error');
+        if (html5QrCode && html5QrCode.isScanning) {
+          await html5QrCode.stop();
         }
+        if (!html5QrCode) {
+          const formats = [];
+          const supported = window.Html5QrcodeSupportedFormats;
+          if (supported) {
+            ['QR_CODE','CODE_128','CODE_39','EAN_13','EAN_8','UPC_A','UPC_E','ITF','CODABAR'].forEach(name => {
+              if (supported[name] !== undefined) formats.push(supported[name]);
+            });
+          }
+          const options = formats.length ? { formatsToSupport: formats, verbose: false } : { verbose: false };
+          html5QrCode = new Html5Qrcode('qr-reader', options);
+        }
+
+        const config = {
+          fps: 12,
+          qrbox: (width, height) => {
+            const boxWidth = Math.min(Math.floor(width * 0.88), 340);
+            const boxHeight = Math.min(Math.floor(height * 0.48), 220);
+            return { width: Math.max(180, boxWidth), height: Math.max(100, boxHeight) };
+          },
+          aspectRatio: 1.0,
+          rememberLastUsedCamera: true
+        };
+        const onDecoded = handleDecodedScan;
+        try {
+          await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded, () => {});
+        } catch (firstError) {
+          const fallbackMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
+          scannerCameraFacingMode = fallbackMode;
+          await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded, () => {});
+        }
+        updateCameraSwitchLabel();
+        showToast(scannerCameraFacingMode === 'environment' ? 'Kamera belakang aktif. Arahkan barcode ke kotak scan.' : 'Kamera depan aktif. Arahkan barcode ke kotak scan.', 'info');
+      } catch (err) {
+        qrDiv.classList.add('hidden');
+        showToast('Kamera gagal dibuka. Izinkan akses kamera dan gunakan HTTPS. ' + (err && err.message ? err.message : ''), 'error');
       } finally {
         scannerCameraStarting = false;
       }
     }
 
     async function switchCameraScanner() {
-      if (!html5QrCode) {
-        scannerCameraFacingMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
-        await startCameraScanner(scannerCameraFacingMode);
-        return;
-      }
-
       const nextMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
       try {
-        if (html5QrCode.isScanning) await html5QrCode.stop();
+        if (html5QrCode && html5QrCode.isScanning) await html5QrCode.stop();
         scannerCameraFacingMode = nextMode;
         await startCameraScanner(nextMode);
-        showToast(nextMode === 'environment' ? 'Kamera belakang dipilih.' : 'Kamera depan dipilih.', 'success');
       } catch (err) {
-        showToast('Tidak dapat mengganti kamera. Coba tutup kamera lalu buka kembali.', 'error');
+        showToast('Tidak dapat mengganti kamera. Tutup kamera lalu buka kembali.', 'error');
       }
     }
 
@@ -2181,58 +2213,78 @@
 
     async function stopCameraScanner() {
       if (html5QrCode && html5QrCode.isScanning) {
-        try { await html5QrCode.stop(); } catch (e) { /* kamera mungkin sudah berhenti */ }
+        try { await html5QrCode.stop(); } catch (e) {}
       }
       const qrDiv = document.getElementById('qr-reader');
       if (qrDiv) qrDiv.classList.add('hidden');
+      showToast('Kamera scanner ditutup.', 'info');
     }
 
     function scanImageFile(input) {
       if (!input.files || input.files.length === 0) return;
       const imageFile = input.files[0];
-      if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode("qr-reader");
+      if (typeof Html5Qrcode === 'undefined') {
+        showToast('Library scanner gagal dimuat. Periksa koneksi internet.', 'error');
+        return;
       }
+      if (!html5QrCode) html5QrCode = new Html5Qrcode('qr-reader');
       html5QrCode.scanFile(imageFile, true)
-        .then(decodedText => {
-          document.getElementById('opname-input-code').value = decodedText;
-          processScanOpname();
-        })
-        .catch(err => showToast("Barcode/QR tidak terbaca dalam foto ini.", "error"));
+        .then(decodedText => handleDecodedScan(decodedText))
+        .catch(() => showToast('Barcode/QR tidak terbaca. Pastikan kode terlihat jelas dan tidak silau.', 'error'))
+        .finally(() => { input.value = ''; });
     }
 
-    function processScanOpname() {
-      const code = document.getElementById('opname-input-code').value.trim();
-      if (!code) return;
+    function processScanOpname(fromCamera = false) {
+      const input = document.getElementById('opname-input-code');
+      const rawCode = input ? input.value.trim() : '';
+      if (!rawCode) {
+        showToast('Belum ada kode. Arahkan kamera ke QR/barcode atau ketik kode.', 'info');
+        return;
+      }
 
-      const match = state.units.find(u => u.sku === code || u.barcode === code);
+      const codeKey = normalizeScanValue(rawCode);
+      const match = (state.units || []).find(u => {
+        const candidates = [u.sku, u.SKU, u.barcode, u.BARCODE, u.unitId, u.UNIT_ID, u.id];
+        return candidates.some(v => normalizeScanValue(v) === codeKey);
+      });
       const tbody = document.getElementById('table-opname-log');
+      if (!tbody) {
+        showToast('Tabel hasil scan tidak ditemukan pada halaman.', 'error');
+        return;
+      }
       const timeStamp = formatDateTime(new Date());
       const tr = document.createElement('tr');
+      const model = match ? (match.model || match.namaProduk || match.NAMA_PRODUK || match.MODEL || match.sku || match.SKU || 'Unit Kamera') : 'Tidak Ditemukan';
+      const sku = match ? (match.sku || match.SKU || match.barcode || match.BARCODE || match.unitId || match.UNIT_ID || rawCode) : rawCode;
+      const status = match ? (match.status || match.STATUS || 'TERDAFTAR') : 'UNKNOWN';
 
       if (match) {
-        playBeepSound();
         tr.innerHTML = `
           <td class="py-2.5 px-3 font-mono text-slate-400">${timeStamp}</td>
-          <td class="py-2.5 px-3 font-mono font-bold text-brand-600">${match.sku}</td>
-          <td class="py-2.5 px-3 font-bold">${match.model}</td>
-          <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] bg-brand-500/10 text-brand-600">${match.status}</span></td>
-          <td class="py-2.5 px-3 font-bold text-brand-600"><i class="fa-solid fa-circle-check"></i> MATCH ACCURATE</td>
-        `;
-        showToast(`Scan Match: ${match.model}`, 'success');
+          <td class="py-2.5 px-3 font-mono font-bold text-brand-600"></td>
+          <td class="py-2.5 px-3 font-bold"></td>
+          <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] bg-brand-500/10 text-brand-600"></span></td>
+          <td class="py-2.5 px-3 font-bold text-brand-600"><i class="fa-solid fa-circle-check"></i> MATCH ACCURATE</td>`;
+        tr.children[1].textContent = sku;
+        tr.children[2].textContent = model;
+        tr.children[3].querySelector('span').textContent = status;
+        showToast(`Barcode cocok: ${model}`, 'success');
       } else {
         tr.innerHTML = `
           <td class="py-2.5 px-3 font-mono text-slate-400">${timeStamp}</td>
-          <td class="py-2.5 px-3 font-mono font-bold text-rose-500">${code}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-rose-500"></td>
           <td class="py-2.5 px-3 text-slate-400">Tidak Ditemukan</td>
           <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-500">UNKNOWN</span></td>
-          <td class="py-2.5 px-3 font-bold text-rose-500"><i class="fa-solid fa-triangle-exclamation"></i> UNMATCHED</td>
-        `;
-        showToast(`Barcode ${code} tidak ada di database!`, 'error');
+          <td class="py-2.5 px-3 font-bold text-rose-500"><i class="fa-solid fa-triangle-exclamation"></i> UNMATCHED</td>`;
+        tr.children[1].textContent = rawCode;
+        showToast(`Kode ${rawCode} berhasil terbaca, tetapi tidak ada di database.`, 'error');
       }
-
       tbody.prepend(tr);
-      document.getElementById('opname-input-code').value = '';
+      if (input) input.value = '';
+      if (fromCamera) {
+        // Pertahankan kamera tetap aktif agar unit berikutnya bisa langsung discan.
+        lastScannerAt = Date.now();
+      }
     }
 
     function handleOpnameKeyPress(e) {
