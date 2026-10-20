@@ -1085,7 +1085,7 @@
         
         <div class="text-center py-2 flex flex-col items-center justify-center gap-1">
           <div id="tag-qrcode-container" class="p-1 border rounded bg-white flex justify-center"></div>
-          <svg id="tag-barcode-svg" class="max-w-full h-10 mt-1"></svg>
+          <svg id="tag-barcode-svg" class="max-w-full h-16 mt-2"></svg>
         </div>
 
         <div class="border-t border-slate-800 pt-1 flex justify-between items-center">
@@ -2324,7 +2324,7 @@
 
       printWindow.document.open();
       printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Label Barcode AZZAM KAMERA</title>
-        <style>@page{size:58mm auto;margin:0}html,body{margin:0;padding:0;width:58mm;background:#fff;color:#111}body{font-family:Arial,sans-serif}#label{width:58mm;box-sizing:border-box;padding:2mm}*{box-sizing:border-box} .head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #111;padding-bottom:2mm;margin-bottom:2mm;font-weight:800;font-size:10px}#tag-model{font-weight:800;font-size:11px;margin-bottom:2mm}#tag-condition,#tag-serials{font-size:9px;margin:1mm 0;color:#333}#tag-price{font-size:11px;font-weight:800} .price{display:flex;justify-content:space-between;border-top:1px solid #111;padding-top:2mm;margin-top:2mm;font-size:9px}svg{max-width:100%;height:auto}#tag-barcode-svg{width:100%;max-height:13mm}#tag-qrcode-container img{width:22mm;height:22mm} .barcode-area{text-align:center;padding:2mm 0}
+        <style>@page{size:58mm auto;margin:0}html,body{margin:0;padding:0;width:58mm;background:#fff;color:#111}body{font-family:Arial,sans-serif}#label{width:58mm;box-sizing:border-box;padding:2mm}*{box-sizing:border-box} .head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #111;padding-bottom:2mm;margin-bottom:2mm;font-weight:800;font-size:10px}#tag-model{font-weight:800;font-size:11px;margin-bottom:2mm}#tag-condition,#tag-serials{font-size:9px;margin:1mm 0;color:#333}#tag-price{font-size:11px;font-weight:800} .price{display:flex;justify-content:space-between;border-top:1px solid #111;padding-top:2mm;margin-top:2mm;font-size:9px}svg{max-width:100%;height:auto}#tag-barcode-svg{width:100%;height:auto;max-height:20mm}#tag-qrcode-container img{width:22mm;height:22mm} .barcode-area{text-align:center;padding:2mm 0}
 /* Mobile-specific CSS is defined in the main stylesheet. */
 </style></head><body><div id="label">${clone.outerHTML}</div>
         <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350)};<\/script></body></html>`);
@@ -2342,7 +2342,7 @@
       document.getElementById('tag-price').innerText = formatIDR(u.hargaJual);
 
       try {
-        JsBarcode("#tag-barcode-svg", u.barcode, { format: "CODE128", width: 1.8, height: 35, displayValue: true });
+        JsBarcode("#tag-barcode-svg", u.barcode, { format: "CODE128", width: 2.6, height: 55, margin: 4, fontSize: 13, textMargin: 3, displayValue: true });
       } catch (e) {}
 
       const qrContainer = document.getElementById('tag-qrcode-container');
