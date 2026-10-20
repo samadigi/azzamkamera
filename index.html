@@ -1251,7 +1251,29 @@
       {kicker:'QUALITY CAMERA, SMART PRICE',title:'Gear Pilihan.\nHarga Bersahabat.',subtitle:'Temukan gear kamera pilihan dengan pengalaman belanja yang lebih nyaman.',image:'https://images.unsplash.com/photo-1510127034890-ba27508e9f1c?auto=format&fit=crop&w=1600&q=85'}
     ];
     let heroBanners = DEFAULT_HERO_BANNERS.map(x=>({...x})); let heroIndex = 0; let heroTimer = null;
-    let apiToken = localStorage.getItem("azzamApiToken") || sessionStorage.getItem("azzamApiToken") || "";
+    // Persist one bundled session so token and user cannot become mismatched.
+    function readSavedAzzamSession_() {
+      try {
+        const raw = localStorage.getItem('azzamSession') || sessionStorage.getItem('azzamSession');
+        if (raw) { const saved = JSON.parse(raw); if (saved && saved.token && saved.user) return saved; }
+      } catch (_) {}
+      try {
+        const token = localStorage.getItem('azzamApiToken') || sessionStorage.getItem('azzamApiToken') || '';
+        const userRaw = localStorage.getItem('azzamCurrentUser') || sessionStorage.getItem('azzamCurrentUser') || '';
+        if (token && userRaw) return {token: token, user: JSON.parse(userRaw)};
+      } catch (_) {}
+      return null;
+    }
+    function persistAzzamSession_(token, user) {
+      const raw = JSON.stringify({token: token, user: user, savedAt: Date.now()});
+      try { localStorage.setItem('azzamSession', raw); localStorage.setItem('azzamApiToken', token); localStorage.setItem('azzamCurrentUser', JSON.stringify(user)); } catch (_) {}
+      try { sessionStorage.setItem('azzamSession', raw); sessionStorage.setItem('azzamApiToken', token); sessionStorage.setItem('azzamCurrentUser', JSON.stringify(user)); } catch (_) {}
+    }
+    function clearAzzamSession_() {
+      ['azzamSession','azzamApiToken','azzamCurrentUser'].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} try { sessionStorage.removeItem(k); } catch (_) {} });
+    }
+    const initialSavedSession = readSavedAzzamSession_();
+    let apiToken = initialSavedSession ? initialSavedSession.token : (localStorage.getItem("azzamApiToken") || sessionStorage.getItem("azzamApiToken") || "");
     let apiRequestCounter = 0;
     function callGasApi(params, callback) {
       const cb = "azzamJsonp_" + (++apiRequestCounter) + "_" + Date.now();
@@ -1431,10 +1453,22 @@
     }
 
     function checkEnvironment() {
-      // Frontend di GitHub selalu menggunakan API Apps Script; tidak memakai data dummy.
+      // GitHub Pages: pulihkan sesi lokal terlebih dahulu; kegagalan API sementara tidak otomatis logout.
       state.isMock = false;
+      const saved = readSavedAzzamSession_();
+      if (saved && saved.token && saved.user) {
+        apiToken = saved.token;
+        state.currentUser = saved.user;
+        persistAzzamSession_(apiToken, state.currentUser);
+        completeLogin(true);
+        return;
+      }
+      // Kompatibilitas dengan sesi lama jika dua key tersimpan terpisah.
       const savedUser = localStorage.getItem('azzamCurrentUser') || sessionStorage.getItem('azzamCurrentUser');
-      if (apiToken && savedUser) { try { state.currentUser = JSON.parse(savedUser); completeLogin(); } catch (e) { apiToken=''; localStorage.removeItem('azzamApiToken'); localStorage.removeItem('azzamCurrentUser'); sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser'); } }
+      if (apiToken && savedUser) {
+        try { state.currentUser = JSON.parse(savedUser); persistAzzamSession_(apiToken, state.currentUser); completeLogin(true); }
+        catch (_) { clearAzzamSession_(); apiToken = ''; }
+      }
     }
 
     function fetchServerData() {
@@ -1448,16 +1482,9 @@
         } else {
           const message = (response && response.message) || 'Gagal memuat data dari server.';
           // Jangan logout hanya karena jaringan/API sementara gagal. Hapus sesi hanya jika server secara eksplisit menyatakan token tidak valid.
-          const invalidSession = response && (response.code === 'INVALID_TOKEN' || response.code === 'UNAUTHORIZED' || response.message === 'Sesi tidak valid' || response.message === 'Token tidak valid' || response.message === 'Sesi berakhir');
-          if (invalidSession) {
-            apiToken = '';
-            localStorage.removeItem('azzamApiToken'); localStorage.removeItem('azzamCurrentUser');
-            sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser');
-            state.currentUser = null;
-            document.getElementById('login-overlay').classList.remove('hidden');
-          } else {
-            showToast(message + ' Sesi login tetap disimpan; coba muat ulang data.', 'error');
-          }
+          // Jangan mengeluarkan pengguna otomatis karena respons API gagal/terlambat.
+          // Sesi lokal dipertahankan; pengguna bisa mencoba memuat ulang data.
+          showToast(message + ' Sesi tetap disimpan. Periksa koneksi Apps Script lalu coba muat ulang data.', 'error');
         }
       });
     }
@@ -1475,8 +1502,7 @@
       callGasApi({action:'login', username:uInput, password:pInput}, res => {
         if (loginButton) { loginButton.disabled = false; loginButton.innerHTML = loginButton.dataset.originalText || 'Masuk Ke Aplikasi'; }
         if (res && res.status === 'success' && res.token && res.user) {
-          apiToken = res.token; localStorage.setItem('azzamApiToken', apiToken); sessionStorage.setItem('azzamApiToken', apiToken);
-          state.currentUser = res.user; localStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); sessionStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); completeLogin();
+          apiToken = res.token; state.currentUser = res.user; persistAzzamSession_(apiToken, state.currentUser); completeLogin();
         } else {
           errorDiv.classList.remove('hidden');
           showToast((res && res.message) || 'Login gagal. Periksa URL deployment Apps Script dan akun.', 'error');
@@ -1484,14 +1510,14 @@
       });
     }
 
-    function completeLogin() {
+    function completeLogin(silentRestore) {
       state.currentUser.role = normalizeRole(state.currentUser.role);
       document.getElementById('login-overlay').classList.add('hidden');
       document.getElementById('current-user-name').innerText = state.currentUser.name;
       document.getElementById('current-user-role-label').innerText = state.currentUser.role === 'owner' ? 'Owner' : 'Admin Operasional';
       document.getElementById('user-avatar').innerText = state.currentUser.role === 'owner' ? 'OW' : 'AD';
       applyRolePermissions();
-      showToast(`Selamat datang, ${state.currentUser.name}!`, 'success');
+      if (!silentRestore) showToast(`Selamat datang, ${state.currentUser.name}!`, 'success');
       fetchServerData();
       renderAll();
     }
@@ -1533,10 +1559,7 @@
     function logoutUser() {
       state.currentUser = null;
       apiToken = '';
-      localStorage.removeItem('azzamApiToken');
-      localStorage.removeItem('azzamCurrentUser');
-      sessionStorage.removeItem('azzamApiToken');
-      sessionStorage.removeItem('azzamCurrentUser');
+      clearAzzamSession_();
       document.getElementById('login-overlay').classList.remove('hidden');
       document.getElementById('login-username').value = '';
       document.getElementById('login-password').value = '';
