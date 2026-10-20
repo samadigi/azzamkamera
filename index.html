@@ -655,6 +655,7 @@
                 <th class="py-3 px-4">Nominal</th>
                 <th class="py-3 px-4">Keterangan Catatan</th>
                 <th class="py-3 px-4">Admin Input</th>
+                <th class="py-3 px-4 text-center" data-owner-only="true">Aksi Owner</th>
               </tr>
             </thead>
             <tbody id="table-expenses-list" class="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -728,6 +729,7 @@
                 <th class="py-3 px-4">Kode Referral Unik</th>
                 <th class="py-3 px-4">Total Value</th>
                 <th class="py-3 px-4">Poin Loyalitas</th>
+                <th class="py-3 px-4 text-center" data-owner-only="true">Aksi Owner</th>
               </tr>
             </thead>
             <tbody id="table-members-list" class="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1466,9 +1468,8 @@
           <td class="py-3 px-4 font-mono">${isSuper ? formatIDR(u.hargaBeli) : '🔒 Locked'}</td>
           <td class="py-3 px-4 font-mono font-bold text-brand-600">${isSuper ? formatIDR(u.totalHPP) : '🔒 Locked'}</td>
           <td class="py-3 px-4 text-center">
-            <button onclick="approveOTW('${u.unitId}')" class="bg-brand-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
-              Verifikasi QC
-            </button>
+            <button onclick="approveOTW('${u.unitId}')" class="bg-brand-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold">Verifikasi QC</button>
+            ${isOwner ? `<button onclick="editRecord('units','${u.unitId}')" class="text-blue-600 px-2 py-1.5" title="Edit"><i class="fa-solid fa-pen"></i></button><button onclick="deleteRecord('units','${u.unitId}')" class="text-rose-600 px-2 py-1.5" title="Hapus"><i class="fa-solid fa-trash"></i></button>` : ''}
           </td>
         `;
         otwTable.appendChild(tr);
@@ -1505,14 +1506,64 @@
           <td class="py-3 px-4">${u.condition}</td>
           <td class="py-3 px-4 font-mono font-bold">${isSuper ? formatIDR(u.totalHPP) : '🔒 Locked'}</td>
           <td class="py-3 px-4 font-mono">${formatIDR(u.hargaJual)}</td>
-          <td class="py-3 px-4 text-center">
-            <button onclick="openBarcodeTagModal('${u.unitId}')" class="text-slate-400 hover:text-brand-600 p-1">
-              <i class="fa-solid fa-print"></i>
-            </button>
+          <td class="py-3 px-4 text-center whitespace-nowrap">
+            <button onclick="openBarcodeTagModal('${u.unitId}')" class="text-slate-400 hover:text-brand-600 p-1" title="Cetak label"><i class="fa-solid fa-print"></i></button>
+            ${isOwner() ? `<button onclick="editRecord('units','${u.unitId}')" class="text-blue-600 hover:text-blue-800 p-1" title="Edit data"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deleteRecord('units','${u.unitId}')" class="text-rose-600 hover:text-rose-800 p-1" title="Hapus data"><i class="fa-solid fa-trash"></i></button>` : ''}
           </td>
         `;
         invTable.appendChild(tr);
       });
+    }
+
+    // CRUD khusus Owner untuk seluruh data operasional.
+    function recordConfig(key) {
+      const map = {
+        units: { id: 'unitId', label: 'unit kamera', fields: ['sku','model','condition','kelengkapan','status','hargaBeli','ongkir','servis','aksesoris','totalHPP','hargaJual','seller','resi','serialCamera','serialLens'] },
+        servis: { id: 'servisId', label: 'tiket servis', fields: ['model','teknisi','kerusakan','biaya','status'] },
+        expenses: { id: 'expenseId', label: 'transaksi kas', fields: ['tipe','kategori','nominal','keterangan'] },
+        members: { id: 'memberId', label: 'data member', fields: ['name','phone','refCode','totalTx','points'] },
+        sales: { id: 'saleId', label: 'transaksi penjualan', fields: ['channel','customer','price','discount','netOmzet'] }
+      };
+      return map[key];
+    }
+    function editRecord(key, id) {
+      if (!isOwner()) return showToast('Hanya Owner yang dapat mengedit data.', 'error');
+      const cfg = recordConfig(key);
+      const list = state[key];
+      if (!cfg || !Array.isArray(list)) return showToast('Data tidak ditemukan.', 'error');
+      const row = list.find(item => String(item[cfg.id]) === String(id));
+      if (!row) return showToast('Data tidak ditemukan.', 'error');
+      for (const field of cfg.fields) {
+        if (!(field in row)) continue;
+        const value = prompt('Edit ' + field + ' (' + cfg.label + '):', row[field] == null ? '' : String(row[field]));
+        if (value === null) return;
+        row[field] = ['hargaBeli','ongkir','servis','aksesoris','totalHPP','hargaJual','biaya','nominal','totalTx','points','price','discount','netOmzet'].includes(field) ? (Number(value) || 0) : value;
+      }
+      if (key === 'units') row.totalHPP = (Number(row.hargaBeli)||0) + (Number(row.ongkir)||0) + (Number(row.servis)||0) + (Number(row.aksesoris)||0);
+      showToast('Data berhasil diperbarui.', 'success');
+      renderAll();
+      persistDashboardData();
+    }
+    function deleteRecord(key, id) {
+      if (!isOwner()) return showToast('Hanya Owner yang dapat menghapus data.', 'error');
+      const cfg = recordConfig(key);
+      const list = state[key];
+      if (!cfg || !Array.isArray(list)) return showToast('Data tidak ditemukan.', 'error');
+      const row = list.find(item => String(item[cfg.id]) === String(id));
+      if (!row) return showToast('Data tidak ditemukan.', 'error');
+      if (!confirm('Hapus ' + cfg.label + ' ' + id + '? Tindakan ini tidak dapat dibatalkan.')) return;
+      state[key] = list.filter(item => String(item[cfg.id]) !== String(id));
+      showToast('Data berhasil dihapus.', 'success');
+      renderAll();
+      persistDashboardData();
+    }
+    function persistDashboardData() {
+      // Persist when opened inside Apps Script. GitHub static hosting requires a configured API endpoint.
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run.withFailureHandler(err => showToast('Gagal menyimpan ke database: ' + (err && err.message ? err.message : 'error'), 'error'))
+          .saveDashboardData({ units: state.units, sales: state.sales, members: state.members, expenses: state.expenses, servis: state.servis, users: state.users }, isOwner() ? 'owner' : 'admin');
+      }
     }
 
     function renderServisTable() {
@@ -1528,8 +1579,9 @@
           <td class="py-3 px-4">${s.kerusakan}</td>
           <td class="py-3 px-4 font-mono font-bold">${formatIDR(s.biaya)}</td>
           <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-500">${s.status}</span></td>
-          <td class="py-3 px-4 text-center">
+          <td class="py-3 px-4 text-center whitespace-nowrap">
             <button onclick="completeServis('${s.servisId}')" class="bg-brand-600/10 text-brand-600 border border-brand-200 px-2 py-1 rounded text-[10px] font-bold">Selesai</button>
+            ${isOwner() ? `<button onclick="editRecord('servis','${s.servisId}')" class="text-blue-600 px-2 py-1" title="Edit"><i class="fa-solid fa-pen"></i></button><button onclick="deleteRecord('servis','${s.servisId}')" class="text-rose-600 px-2 py-1" title="Hapus"><i class="fa-solid fa-trash"></i></button>` : ''}
           </td>
         `;
         srvTable.appendChild(tr);
@@ -1548,6 +1600,7 @@
           <td class="py-3 px-4 font-mono font-bold text-rose-500">- ${formatIDR(x.nominal)}</td>
           <td class="py-3 px-4">${x.keterangan}</td>
           <td class="py-3 px-4 font-mono text-slate-400">${x.admin}</td>
+          ${isOwner() ? `<td class="py-3 px-4 text-center whitespace-nowrap"><button onclick="editRecord('expenses','${x.expenseId}')" class="text-blue-600 px-2" title="Edit"><i class="fa-solid fa-pen"></i></button><button onclick="deleteRecord('expenses','${x.expenseId}')" class="text-rose-600 px-2" title="Hapus"><i class="fa-solid fa-trash"></i></button></td>` : ''}
         `;
         expTable.appendChild(tr);
       });
@@ -1586,6 +1639,7 @@
           <td class="py-3 px-4 font-mono font-bold text-brand-600">${m.refCode}</td>
           <td class="py-3 px-4 font-mono">${formatIDR(m.totalTx)}</td>
           <td class="py-3 px-4 font-mono font-bold text-amber-500">${m.points} Pts</td>
+          ${isOwner() ? `<td class="py-3 px-4 text-center whitespace-nowrap"><button onclick="editRecord('members','${m.memberId}')" class="text-blue-600 px-2" title="Edit"><i class="fa-solid fa-pen"></i></button><button onclick="deleteRecord('members','${m.memberId}')" class="text-rose-600 px-2" title="Hapus"><i class="fa-solid fa-trash"></i></button></td>` : ''}
         `;
         mbrTable.appendChild(tr);
       });
@@ -1904,6 +1958,7 @@
       showToast('Unit OTW baru tersimpan!', 'success');
       closeModal('modal-add-unit');
       renderAll();
+      persistDashboardData();
     }
 
     
@@ -1997,6 +2052,7 @@ function processPOS(e) {
       playBeepSound();
       showToast(`Transaksi ${sale.saleId} berhasil!`, 'success');
       renderAll();
+      persistDashboardData();
       printAzzamReceipt(sale, u);
     }
 
@@ -2022,6 +2078,7 @@ function processPOS(e) {
       showToast('Tiket servis disimpan!', 'success');
       closeModal('modal-add-servis');
       renderAll();
+      persistDashboardData();
     }
 
     function saveNewExpense(e) {
@@ -2038,6 +2095,7 @@ function processPOS(e) {
       showToast('Kas tersimpan!', 'success');
       closeModal('modal-add-expense');
       renderAll();
+      persistDashboardData();
     }
 
     function saveNewMember(e) {
@@ -2054,6 +2112,7 @@ function processPOS(e) {
       showToast('Member tersimpan!', 'success');
       closeModal('modal-add-member');
       renderAll();
+      persistDashboardData();
     }
 
     function saveNewUser(e) {
