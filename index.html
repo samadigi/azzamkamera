@@ -1251,7 +1251,7 @@
       {kicker:'QUALITY CAMERA, SMART PRICE',title:'Gear Pilihan.\nHarga Bersahabat.',subtitle:'Temukan gear kamera pilihan dengan pengalaman belanja yang lebih nyaman.',image:'https://images.unsplash.com/photo-1510127034890-ba27508e9f1c?auto=format&fit=crop&w=1600&q=85'}
     ];
     let heroBanners = DEFAULT_HERO_BANNERS.map(x=>({...x})); let heroIndex = 0; let heroTimer = null;
-    let apiToken = sessionStorage.getItem("azzamApiToken") || "";
+    let apiToken = localStorage.getItem("azzamApiToken") || sessionStorage.getItem("azzamApiToken") || "";
     let apiRequestCounter = 0;
     function callGasApi(params, callback) {
       const cb = "azzamJsonp_" + (++apiRequestCounter) + "_" + Date.now();
@@ -1433,8 +1433,8 @@
     function checkEnvironment() {
       // Frontend di GitHub selalu menggunakan API Apps Script; tidak memakai data dummy.
       state.isMock = false;
-      const savedUser = sessionStorage.getItem('azzamCurrentUser');
-      if (apiToken && savedUser) { try { state.currentUser = JSON.parse(savedUser); completeLogin(); } catch (e) { apiToken=''; sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser'); } }
+      const savedUser = localStorage.getItem('azzamCurrentUser') || sessionStorage.getItem('azzamCurrentUser');
+      if (apiToken && savedUser) { try { state.currentUser = JSON.parse(savedUser); completeLogin(); } catch (e) { apiToken=''; localStorage.removeItem('azzamApiToken'); localStorage.removeItem('azzamCurrentUser'); sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser'); } }
     }
 
     function fetchServerData() {
@@ -1446,8 +1446,18 @@
           state.servis = response.servis || []; state.users = response.users || [];
           if (state.currentUser) renderAll();
         } else {
-          apiToken = ''; sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser');
-          showToast((response && response.message) || 'Sesi berakhir. Silakan login kembali.', 'error');
+          const message = (response && response.message) || 'Gagal memuat data dari server.';
+          // Jangan logout hanya karena jaringan/API sementara gagal. Hapus sesi hanya jika server secara eksplisit menyatakan token tidak valid.
+          const invalidSession = response && (response.code === 'INVALID_TOKEN' || response.code === 'UNAUTHORIZED' || response.message === 'Sesi tidak valid' || response.message === 'Token tidak valid' || response.message === 'Sesi berakhir');
+          if (invalidSession) {
+            apiToken = '';
+            localStorage.removeItem('azzamApiToken'); localStorage.removeItem('azzamCurrentUser');
+            sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser');
+            state.currentUser = null;
+            document.getElementById('login-overlay').classList.remove('hidden');
+          } else {
+            showToast(message + ' Sesi login tetap disimpan; coba muat ulang data.', 'error');
+          }
         }
       });
     }
@@ -1465,8 +1475,8 @@
       callGasApi({action:'login', username:uInput, password:pInput}, res => {
         if (loginButton) { loginButton.disabled = false; loginButton.innerHTML = loginButton.dataset.originalText || 'Masuk Ke Aplikasi'; }
         if (res && res.status === 'success' && res.token && res.user) {
-          apiToken = res.token; sessionStorage.setItem('azzamApiToken', apiToken);
-          state.currentUser = res.user; sessionStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); completeLogin();
+          apiToken = res.token; localStorage.setItem('azzamApiToken', apiToken); sessionStorage.setItem('azzamApiToken', apiToken);
+          state.currentUser = res.user; localStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); sessionStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); completeLogin();
         } else {
           errorDiv.classList.remove('hidden');
           showToast((res && res.message) || 'Login gagal. Periksa URL deployment Apps Script dan akun.', 'error');
@@ -1522,6 +1532,11 @@
 
     function logoutUser() {
       state.currentUser = null;
+      apiToken = '';
+      localStorage.removeItem('azzamApiToken');
+      localStorage.removeItem('azzamCurrentUser');
+      sessionStorage.removeItem('azzamApiToken');
+      sessionStorage.removeItem('azzamCurrentUser');
       document.getElementById('login-overlay').classList.remove('hidden');
       document.getElementById('login-username').value = '';
       document.getElementById('login-password').value = '';
@@ -1678,6 +1693,26 @@
 
     function switchInventorySubTab(subTab) {
       state.invSubTab = subTab;
+
+      // Perbarui tampilan tombol: tab aktif selalu hijau, tab lain netral.
+      const tabMap = {
+        IN_STOCK: document.getElementById('subtab-instock'),
+        OTW: document.getElementById('subtab-otw'),
+        SOLD: document.getElementById('subtab-sold')
+      };
+      Object.entries(tabMap).forEach(([key, button]) => {
+        if (!button) return;
+        const active = key === subTab;
+        button.classList.remove('bg-brand-600', 'text-white', 'shadow', 'text-slate-500', 'dark:text-slate-400');
+        if (active) {
+          button.classList.add('bg-brand-600', 'text-white', 'shadow');
+          button.setAttribute('aria-pressed', 'true');
+        } else {
+          button.classList.add('text-slate-500', 'dark:text-slate-400');
+          button.setAttribute('aria-pressed', 'false');
+        }
+      });
+
       renderInventoryTable();
     }
 
@@ -1753,10 +1788,20 @@
       const row = list.find(item => String(item[cfg.id]) === String(id));
       if (!row) return showToast('Data tidak ditemukan.', 'error');
       if (!confirm('Hapus ' + cfg.label + ' ' + id + '? Tindakan ini tidak dapat dibatalkan.')) return;
-      state[key] = list.filter(item => String(item[cfg.id]) !== String(id));
-      showToast('Data berhasil dihapus.', 'success');
-      renderAll();
-      persistDashboardData();
+      if (!apiToken || !state.currentUser) return showToast('Sesi login tidak aktif. Silakan login kembali.', 'error');
+      const buttons = Array.from(document.querySelectorAll('button')).filter(b => (b.getAttribute('onclick') || '').includes(`deleteRecord('${key}','${id}')`));
+      buttons.forEach(b => { b.disabled = true; b.dataset.oldText = b.innerHTML; b.textContent = 'Menghapus...'; });
+      // Hapus langsung pada baris Spreadsheet. UI hanya berubah setelah server mengonfirmasi.
+      callGasApi({action:'deleteRecord', token:apiToken, collection:key, id:String(id)}, res => {
+        buttons.forEach(b => { b.disabled = false; b.innerHTML = b.dataset.oldText || 'Hapus'; });
+        if (res && res.status === 'success') {
+          state[key] = state[key].filter(item => String(item[cfg.id]) !== String(id));
+          renderAll();
+          showToast('Data berhasil dihapus dari aplikasi dan Spreadsheet.', 'success');
+        } else {
+          showToast((res && res.message) || 'Gagal menghapus data dari Spreadsheet. Data tidak dihapus dari tampilan.', 'error');
+        }
+      });
     }
     function persistDashboardData(done) {
       if (!apiToken || !state.currentUser) {
