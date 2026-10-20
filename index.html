@@ -1290,13 +1290,18 @@
       const pInput = document.getElementById('login-password').value;
       const errorDiv = document.getElementById('login-error');
       errorDiv.classList.add('hidden');
-      submitGasForm({action:'login', username:uInput, password:pInput}, res => {
-        if (res && res.status === 'success') {
-          apiToken = res.token || ''; sessionStorage.setItem('azzamApiToken', apiToken);
+      // Login memakai JSONP GET agar respons lintas-domain GitHub Pages
+      // tidak terhalang iframe/X-Frame-Options dari Google Apps Script.
+      const loginButton = document.querySelector('#login-overlay button[type=submit]');
+      if (loginButton) { loginButton.disabled = true; loginButton.dataset.originalText = loginButton.innerHTML; loginButton.innerHTML = 'Memeriksa akun...'; }
+      callGasApi({action:'login', username:uInput, password:pInput}, res => {
+        if (loginButton) { loginButton.disabled = false; loginButton.innerHTML = loginButton.dataset.originalText || 'Masuk Ke Aplikasi'; }
+        if (res && res.status === 'success' && res.token && res.user) {
+          apiToken = res.token; sessionStorage.setItem('azzamApiToken', apiToken);
           state.currentUser = res.user; sessionStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); completeLogin();
         } else {
           errorDiv.classList.remove('hidden');
-          showToast((res && res.message) || 'Username atau password salah.', 'error');
+          showToast((res && res.message) || 'Login gagal. Periksa URL deployment Apps Script dan akun.', 'error');
         }
       });
     }
