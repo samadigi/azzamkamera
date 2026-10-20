@@ -1255,10 +1255,20 @@
     let apiRequestCounter = 0;
     function callGasApi(params, callback) {
       const cb = "azzamJsonp_" + (++apiRequestCounter) + "_" + Date.now();
-      window[cb] = function(data) { try { callback(data); } finally { delete window[cb]; script.remove(); } };
       const script = document.createElement("script");
+      let finished = false;
+      const finish = (data) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        delete window[cb];
+        script.remove();
+        callback(data);
+      };
+      const timer = setTimeout(() => finish({status:"error",message:"Permintaan ke Apps Script melewati batas waktu. Pastikan deployment terbaru sudah diterbitkan."}), 15000);
+      window[cb] = data => finish(data);
       params.callback = cb;
-      script.onerror = function() { delete window[cb]; script.remove(); callback({status:"error",message:"Tidak dapat terhubung ke Apps Script. Periksa URL deployment."}); };
+      script.onerror = () => finish({status:"error",message:"Tidak dapat terhubung ke Apps Script. Periksa URL deployment dan akses Web App."});
       script.src = GAS_WEBAPP_URL + "?" + new URLSearchParams(params).toString();
       document.head.appendChild(script);
     }
@@ -1757,7 +1767,9 @@
       }
       const payload = {units:state.units, sales:state.sales, members:state.members,
         expenses:state.expenses, servis:state.servis, users:state.users};
-      submitGasForm({action:'save', token:apiToken, payload:JSON.stringify(payload)}, res => {
+      // Simpan melalui endpoint JSONP GET agar GitHub Pages menerima respons
+      // Apps Script tanpa bergantung pada postMessage dari iframe lintas domain.
+      callGasApi({action:'save', token:apiToken, payload:JSON.stringify(payload)}, res => {
         const ok = !!(res && res.status === 'success');
         if (done) done(ok, res);
         else if (ok) showToast('Data berhasil disimpan ke Spreadsheet.', 'success');
