@@ -1495,9 +1495,10 @@
       if (!apiToken) return;
       callGasApi({action:'data', token:apiToken}, response => {
         if (response && response.status === 'success') {
-          state.units = response.units || []; state.sales = response.sales || [];
+          state.units = (response.units || []).map(u => ({...u, model:u.model || u.namaProduk || u.NAMA_PRODUK || '', condition:u.condition || u.kondisi || u.KONDISI || '', unitId:u.unitId || u.UNIT_ID || u.id || '', sku:u.sku || u.SKU || '', status:u.status || u.STATUS || 'IN_STOCK', createdAt:u.createdAt || u.tanggalMasuk || u.TANGGAL_MASUK || '', serialCamera:u.serialCamera || u.SERIAL_CAMERA || '', totalHPP:Number(u.totalHPP ?? u.TOTAL_HPP ?? 0), hargaJual:Number(u.hargaJual ?? u.HARGA_JUAL ?? 0)}));
+          state.sales = (response.sales || []).map(x => ({...x, saleId:x.saleId || x.SALE_ID || x.id || '', model:x.model || x.namaProduk || x.NAMA_PRODUK || '', dateTime:x.dateTime || x.tanggalJual || x.TANGGAL_JUAL || '', netOmzet:Number(x.netOmzet ?? x.TOTAL_OMZET ?? 0)}));
           state.members = response.members || []; state.expenses = response.expenses || [];
-          state.servis = response.servis || []; state.users = response.users || [];
+          state.servis = (response.servis || []).map(x => ({...x, servisId:x.servisId || x.SERVIS_ID || x.id || '', model:x.model || x.MODEL || '', dateTimeMasuk:x.dateTimeMasuk || x.TANGGAL_MASUK || '', unitId:x.unitId || x.UNIT_ID || ''})); state.users = response.users || [];
           if (state.currentUser) renderAll();
         } else {
           const message = (response && response.message) || 'Gagal memuat data dari server.';
