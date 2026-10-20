@@ -1215,12 +1215,12 @@
     }
 
     function checkEnvironment() {
-      if (typeof google === 'undefined' || !google.script) {
+      if (typeof google === 'undefined' || !google.script || !google.script.run) {
         state.isMock = true;
-        state.units = [...mockUnits];
-        state.sales = [...mockSales];
-        state.users = [...mockUsers];
+        state.units = []; state.sales = []; state.members = []; state.expenses = []; state.servis = []; state.users = [];
+        showToast('Frontend ini harus dibuka dari URL Web App Apps Script agar tersambung ke Google Sheets.', 'error');
       } else {
+        state.isMock = false;
         fetchServerData();
       }
     }
@@ -1238,7 +1238,7 @@
             if (state.currentUser) renderAll();
           }
         })
-        .getDashboardData();
+        .getDashboardData(state.currentUser ? state.currentUser.role : 'admin');
     }
 
     function handleLogin(e) {
@@ -1284,6 +1284,7 @@
       document.getElementById('user-avatar').innerText = state.currentUser.role === 'owner' ? 'OW' : 'AD';
       applyRolePermissions();
       showToast(`Selamat datang, ${state.currentUser.name}!`, 'success');
+      fetchServerData();
       renderAll();
     }
 
@@ -1724,6 +1725,7 @@
       closeModal('modal-add-user');
       editingUserId = null;
       renderAll();
+      persistDashboardData();
     }
 
     function toggleUserStatus(id) {
@@ -1734,6 +1736,7 @@
       u.active = !(u.active === false || String(u.active).toLowerCase() === 'false');
       showToast(u.active ? 'Akun diaktifkan.' : 'Akun dinonaktifkan.', 'success');
       renderAll();
+      persistDashboardData();
     }
 
     function deleteUser(id) {
@@ -1745,6 +1748,7 @@
       state.users = state.users.filter(x => String(x.userId) !== String(id));
       showToast('Akun user berhasil dihapus.', 'success');
       renderAll();
+      persistDashboardData();
     }
 
     function renderFinancials() {
@@ -2127,6 +2131,7 @@ function processPOS(e) {
       showToast('User tersimpan!', 'success');
       closeModal('modal-add-user');
       renderAll();
+      persistDashboardData();
     }
 
     function completeServis(id) {
