@@ -1933,12 +1933,12 @@
       state.members.forEach(m => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td class="py-3 px-4 font-mono text-slate-400">${m.registeredAt || '-'}</td>
+          <td class="py-3 px-4 font-mono text-slate-400">${m.registeredAt || m.registeredAtTime || m.REGISTERED_AT || '-'}</td>
           <td class="py-3 px-4 font-bold">${m.name}</td>
           <td class="py-3 px-4 font-mono">${m.phone}</td>
-          <td class="py-3 px-4 font-mono font-bold text-brand-600">${m.refCode}</td>
-          <td class="py-3 px-4 font-mono">${formatIDR(m.totalTx)}</td>
-          <td class="py-3 px-4 font-mono font-bold text-amber-500">${m.points} Pts</td>
+          <td class="py-3 px-4 font-mono font-bold text-brand-600">${m.refCode || m.referralCode || m.kodeReferral || m.KODE_REFERRAL || '-'}</td>
+          <td class="py-3 px-4 font-mono">${formatIDR(m.totalTx ?? m.totalValue ?? m.totalTransaksi ?? m.TOTAL_TRANSAKSI ?? 0)}</td>
+          <td class="py-3 px-4 font-mono font-bold text-amber-500">${m.points ?? m.poin ?? m.POIN ?? 0} Pts</td>
           ${isOwner() ? `<td class="py-3 px-4 text-center whitespace-nowrap"><button onclick="editRecord('members','${m.memberId}')" class="text-blue-600 px-2" title="Edit"><i class="fa-solid fa-pen"></i></button><button onclick="deleteRecord('members','${m.memberId}')" class="text-rose-600 px-2" title="Hapus"><i class="fa-solid fa-trash"></i></button></td>` : ''}
         `;
         mbrTable.appendChild(tr);
