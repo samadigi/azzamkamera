@@ -714,6 +714,9 @@
             <button onclick="startCameraScanner()" class="inline-flex items-center gap-2 text-xs text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800 px-3.5 py-2 rounded-xl font-bold hover:bg-brand-100 transition-all">
               <i class="fa-solid fa-camera"></i> Buka Kamera HP
             </button>
+            <button id="btn-flip-camera" onclick="switchCameraScanner()" class="inline-flex items-center gap-2 text-xs text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 px-3.5 py-2 rounded-xl font-bold hover:bg-sky-100 transition-all">
+              <i class="fa-solid fa-camera-rotate"></i> Ganti Kamera
+            </button>
             <button onclick="stopCameraScanner()" class="inline-flex items-center gap-2 text-xs text-rose-500 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 px-3.5 py-2 rounded-xl font-bold hover:bg-rose-100 transition-all">
               <i class="fa-solid fa-video-slash"></i> Tutup
             </button>
@@ -2110,45 +2113,78 @@
       }
     }
 
-    function startCameraScanner() {
+    let scannerCameraFacingMode = "environment"; // Kamera belakang sebagai default
+    let scannerCameraStarting = false;
+
+    async function startCameraScanner(preferredMode) {
       const qrDiv = document.getElementById('qr-reader');
+      if (!qrDiv) return;
       qrDiv.classList.remove('hidden');
 
-      if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode("qr-reader");
-      }
+      if (preferredMode) scannerCameraFacingMode = preferredMode;
+      if (!html5QrCode) html5QrCode = new Html5Qrcode("qr-reader");
+      if (scannerCameraStarting) return;
+      scannerCameraStarting = true;
 
-      // Scanner engine fallback constraints for mobile HP camera
       const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+      const onDecoded = (decodedText) => {
+        const input = document.getElementById('opname-input-code');
+        if (input) input.value = decodedText;
+        processScanOpname();
+      };
 
-      html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        (decodedText) => {
-          document.getElementById('opname-input-code').value = decodedText;
-          processScanOpname();
+      try {
+        await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded);
+        updateCameraSwitchLabel();
+      } catch (firstError) {
+        // Jika kamera pilihan tidak tersedia, coba kamera lawan arah.
+        const fallbackMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
+        try {
+          scannerCameraFacingMode = fallbackMode;
+          await html5QrCode.start({ facingMode: scannerCameraFacingMode }, config, onDecoded);
+          updateCameraSwitchLabel();
+          showToast(scannerCameraFacingMode === 'environment' ? 'Kamera belakang aktif.' : 'Kamera depan aktif.', 'info');
+        } catch (secondError) {
+          qrDiv.classList.add('hidden');
+          showToast('Gagal membuka kamera. Pastikan izin kamera diberikan dan akses menggunakan HTTPS.', 'error');
         }
-      ).catch(err => {
-        // Fallback constraint attempt
-        html5QrCode.start(
-          { facingMode: "user" },
-          config,
-          (decodedText) => {
-            document.getElementById('opname-input-code').value = decodedText;
-            processScanOpname();
-          }
-        ).catch(e => showToast("Gagal membuka kamera. Silakan gunakan Opsi Upload Foto QR.", "error"));
-      });
+      } finally {
+        scannerCameraStarting = false;
+      }
     }
 
-    function stopCameraScanner() {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => {
-          document.getElementById('qr-reader').classList.add('hidden');
-        });
-      } else {
-        document.getElementById('qr-reader').classList.add('hidden');
+    async function switchCameraScanner() {
+      if (!html5QrCode) {
+        scannerCameraFacingMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
+        await startCameraScanner(scannerCameraFacingMode);
+        return;
       }
+
+      const nextMode = scannerCameraFacingMode === 'environment' ? 'user' : 'environment';
+      try {
+        if (html5QrCode.isScanning) await html5QrCode.stop();
+        scannerCameraFacingMode = nextMode;
+        await startCameraScanner(nextMode);
+        showToast(nextMode === 'environment' ? 'Kamera belakang dipilih.' : 'Kamera depan dipilih.', 'success');
+      } catch (err) {
+        showToast('Tidak dapat mengganti kamera. Coba tutup kamera lalu buka kembali.', 'error');
+      }
+    }
+
+    function updateCameraSwitchLabel() {
+      const button = document.getElementById('btn-flip-camera');
+      if (!button) return;
+      button.innerHTML = scannerCameraFacingMode === 'environment'
+        ? '<i class="fa-solid fa-camera-rotate"></i> Ganti ke Kamera Depan'
+        : '<i class="fa-solid fa-camera-rotate"></i> Ganti ke Kamera Belakang';
+    }
+
+    async function stopCameraScanner() {
+      if (html5QrCode && html5QrCode.isScanning) {
+        try { await html5QrCode.stop(); } catch (e) { /* kamera mungkin sudah berhenti */ }
+      }
+      const qrDiv = document.getElementById('qr-reader');
+      if (qrDiv) qrDiv.classList.add('hidden');
     }
 
     function scanImageFile(input) {
