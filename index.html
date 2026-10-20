@@ -1275,11 +1275,13 @@
         if (callback) callback(result);
       };
       const handler = function(event) {
-        if (!event.data || event.data.type !== 'AZZAM_API_RESULT') return;
-        finish(event.data.data || {status:'error',message:'Respons API kosong.'});
+        let message = event.data;
+        if (typeof message === 'string') { try { message = JSON.parse(message); } catch (_) { return; } }
+        if (!message || message.type !== 'AZZAM_API_RESULT') return;
+        finish(message.data || {status:'error',message:'Respons API kosong.'});
       };
       window.addEventListener('message', handler);
-      timeoutId = setTimeout(() => finish({status:'error',message:'Tidak ada respons dari Apps Script. Periksa URL deployment dan deploy versi terbaru.'}), 15000);
+      timeoutId = setTimeout(() => finish({status:'error',message:'Server Apps Script belum memberi konfirmasi setelah 30 detik. Data tidak dianggap tersimpan. Pastikan Code.gs versi terbaru sudah di-deploy sebagai Web App.'}), 30000);
       const form = document.createElement("form"); form.method = "POST"; form.action = GAS_WEBAPP_URL; form.target = frame.name; form.style.display = "none";
       Object.keys(params).forEach(k => { const input = document.createElement("input"); input.name = k; input.value = typeof params[k] === "string" ? params[k] : JSON.stringify(params[k]); form.appendChild(input); });
       document.body.appendChild(form);
