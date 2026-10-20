@@ -78,11 +78,7 @@
       background: #10b981;
       border-radius: 4px;
     }
-    @media print {
-      body * { visibility: hidden; }
-      #printable-barcode-tag, #printable-barcode-tag * { visibility: visible; }
-      #printable-barcode-tag { position: absolute; left: 0; top: 0; width: 100%; }
-    }
+    /* Label dicetak melalui jendela cetak khusus agar tidak bentrok dengan CSS struk */
     @media(max-width:900px){.prelogin-main:not(.login-card-visible) .hero-carousel{min-height:350px;height:54vh}}
   @media(max-width:560px){.prelogin-main:not(.login-card-visible) .hero-carousel{min-height:330px;height:48vh}}
 </style>
@@ -1075,7 +1071,7 @@
         </div>
       </div>
 
-      <button onclick="window.print()" class="w-full mt-5 bg-brand-600 hover:bg-brand-500 text-white font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-2">
+      <button onclick="printBarcodeLabel()" class="w-full mt-5 bg-brand-600 hover:bg-brand-500 text-white font-bold py-2.5 rounded-xl text-xs shadow flex items-center justify-center gap-2">
         <i class="fa-solid fa-print"></i> Cetak Label Sekarang
       </button>
     </div>
@@ -1269,17 +1265,26 @@
     function submitGasForm(params, callback) {
       let frame = document.getElementById("azzam-save-frame");
       if (!frame) { frame = document.createElement("iframe"); frame.name = "azzam-save-frame"; frame.id = "azzam-save-frame"; frame.style.display = "none"; document.body.appendChild(frame); }
-      if (callback) {
-        const handler = function(event) {
-          if (!event.data || event.data.type !== 'AZZAM_API_RESULT') return;
-          window.removeEventListener('message', handler);
-          callback(event.data.data || {status:'error',message:'Respons API kosong.'});
-        };
-        window.addEventListener('message', handler);
-      }
+      let finished = false;
+      let timeoutId = null;
+      const finish = (result) => {
+        if (finished) return;
+        finished = true;
+        if (timeoutId) clearTimeout(timeoutId);
+        window.removeEventListener('message', handler);
+        if (callback) callback(result);
+      };
+      const handler = function(event) {
+        if (!event.data || event.data.type !== 'AZZAM_API_RESULT') return;
+        finish(event.data.data || {status:'error',message:'Respons API kosong.'});
+      };
+      window.addEventListener('message', handler);
+      timeoutId = setTimeout(() => finish({status:'error',message:'Tidak ada respons dari Apps Script. Periksa URL deployment dan deploy versi terbaru.'}), 15000);
       const form = document.createElement("form"); form.method = "POST"; form.action = GAS_WEBAPP_URL; form.target = frame.name; form.style.display = "none";
       Object.keys(params).forEach(k => { const input = document.createElement("input"); input.name = k; input.value = typeof params[k] === "string" ? params[k] : JSON.stringify(params[k]); form.appendChild(input); });
-      document.body.appendChild(form); form.submit(); form.remove();
+      document.body.appendChild(form);
+      try { form.submit(); } catch (err) { finish({status:'error',message:'Gagal mengirim data: ' + err.message}); }
+      form.remove();
     }
 
     let state = {
@@ -1741,12 +1746,19 @@
       renderAll();
       persistDashboardData();
     }
-    function persistDashboardData() {
-      if (!apiToken || !state.currentUser) return;
+    function persistDashboardData(done) {
+      if (!apiToken || !state.currentUser) {
+        const message = 'Belum terhubung ke sesi login Apps Script. Silakan login ulang.';
+        if (done) done(false, {status:'error',message});
+        else showToast(message, 'error');
+        return;
+      }
       const payload = {units:state.units, sales:state.sales, members:state.members,
         expenses:state.expenses, servis:state.servis, users:state.users};
       submitGasForm({action:'save', token:apiToken, payload:JSON.stringify(payload)}, res => {
-        if (res && res.status === 'success') showToast('Data berhasil disimpan ke Spreadsheet.', 'success');
+        const ok = !!(res && res.status === 'success');
+        if (done) done(ok, res);
+        else if (ok) showToast('Data berhasil disimpan ke Spreadsheet.', 'success');
         else showToast((res && res.message) || 'Gagal menyimpan ke Spreadsheet.', 'error');
       });
     }
@@ -2088,6 +2100,44 @@
       if (e.key === 'Enter') processScanOpname();
     }
 
+    function printBarcodeLabel() {
+      const tag = document.getElementById('printable-barcode-tag');
+      if (!tag) { showToast('Label tidak ditemukan.', 'error'); return; }
+
+      // Buka jendela terpisah agar aturan cetak struk tidak menyembunyikan label.
+      const printWindow = window.open('', '_blank', 'width=520,height=700');
+      if (!printWindow) {
+        showToast('Popup diblokir browser. Izinkan pop-up untuk situs ini lalu coba lagi.', 'error');
+        return;
+      }
+
+      const clone = tag.cloneNode(true);
+      clone.removeAttribute('id');
+      clone.querySelectorAll('*').forEach(el => el.removeAttribute('class'));
+      clone.style.cssText = 'width:58mm;box-sizing:border-box;padding:3mm;background:#fff;color:#111;font:10px Arial,sans-serif;';
+      clone.querySelectorAll('svg').forEach(svg => {
+        svg.style.cssText = 'display:block;max-width:100%;height:auto;margin:4px auto;';
+      });
+      // QRCode library may draw the QR as canvas; preserve it as an image in print window.
+      const qrSource = document.querySelector('#tag-qrcode-container canvas');
+      if (qrSource) {
+        const qrImage = document.createElement('img');
+        qrImage.src = qrSource.toDataURL('image/png');
+        qrImage.alt = 'QR Code';
+        qrImage.style.cssText = 'width:22mm;height:22mm;object-fit:contain;display:block;margin:0 auto;';
+        const qrTarget = clone.querySelector('#tag-qrcode-container');
+        if (qrTarget) { qrTarget.innerHTML = ''; qrTarget.appendChild(qrImage); }
+      }
+      const qrTarget = clone.querySelector('#tag-qrcode-container');
+      if (qrTarget) qrTarget.style.cssText = 'display:flex;justify-content:center;padding:1mm;background:#fff;';
+
+      printWindow.document.open();
+      printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Label Barcode AZZAM KAMERA</title>
+        <style>@page{size:58mm auto;margin:0}html,body{margin:0;padding:0;width:58mm;background:#fff;color:#111}body{font-family:Arial,sans-serif}#label{width:58mm;box-sizing:border-box;padding:2mm}*{box-sizing:border-box} .head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #111;padding-bottom:2mm;margin-bottom:2mm;font-weight:800;font-size:10px}#tag-model{font-weight:800;font-size:11px;margin-bottom:2mm}#tag-condition,#tag-serials{font-size:9px;margin:1mm 0;color:#333}#tag-price{font-size:11px;font-weight:800} .price{display:flex;justify-content:space-between;border-top:1px solid #111;padding-top:2mm;margin-top:2mm;font-size:9px}svg{max-width:100%;height:auto}#tag-barcode-svg{width:100%;max-height:13mm}#tag-qrcode-container img{width:22mm;height:22mm} .barcode-area{text-align:center;padding:2mm 0}</style></head><body><div id="label">${clone.outerHTML}</div>
+        <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350)};<\/script></body></html>`);
+      printWindow.document.close();
+    }
+
     function openBarcodeTagModal(unitId) {
       const u = state.units.find(x => x.unitId === unitId);
       if (!u) return;
@@ -2122,31 +2172,48 @@
 
     function saveNewUnit(e) {
       e.preventDefault();
+      if (!apiToken || !state.currentUser) return showToast('Sesi login tidak aktif. Silakan login ulang sebelum menambah unit.', 'error');
       const timeStamp = formatDateTime(new Date());
+      const rand = () => Math.floor(100000 + Math.random() * 900000);
       const newUnit = {
-        unitId: 'UT-' + Math.floor(1000 + Math.random() * 9000),
-        sku: 'CAM-' + Math.floor(100 + Math.random() * 900),
-        barcode: '899' + Math.floor(1000001 + Math.random() * 9000000),
-        model: document.getElementById('add-model').value,
+        unitId: 'UT-' + Date.now().toString().slice(-8),
+        sku: 'CAM-' + rand(),
+        barcode: '899' + rand() + rand().toString().slice(0,1),
+        model: document.getElementById('add-model').value.trim(),
         category: 'Kamera',
-        condition: document.getElementById('add-condition').value,
-        kelengkapan: document.getElementById('add-kelengkapan').value,
-        status: 'OTW',
+        condition: document.getElementById('add-condition').value.trim(),
+        kelengkapan: document.getElementById('add-kelengkapan').value.trim(),
+        // Unit baru langsung masuk Ready Stock agar terlihat pada tab default Inventaris.
+        status: 'IN_STOCK',
         hargaBeli: Number(document.getElementById('add-harga-beli').value) || 0,
         ongkir: Number(document.getElementById('add-ongkir').value) || 0,
+        servis: 0,
+        aksesoris: 0,
         totalHPP: (Number(document.getElementById('add-harga-beli').value) || 0) + (Number(document.getElementById('add-ongkir').value) || 0),
         hargaJual: Number(document.getElementById('add-harga-jual').value) || 0,
-        seller: document.getElementById('add-seller').value,
-        serialCamera: document.getElementById('add-sn-camera').value || '-',
-        serialLens: document.getElementById('add-sn-lens').value || '-',
+        seller: document.getElementById('add-seller').value.trim(),
+        resi: '-',
+        serialCamera: document.getElementById('add-sn-camera').value.trim() || '-',
+        serialLens: document.getElementById('add-sn-lens').value.trim() || '-',
         createdAt: timeStamp
       };
-
+      const submitButton = e.submitter || document.querySelector('#modal-add-unit button[type="submit"]');
+      if (submitButton) { submitButton.disabled = true; submitButton.dataset.oldText = submitButton.innerHTML; submitButton.innerHTML = 'Menyimpan...'; }
       state.units.push(newUnit);
-      showToast('Unit OTW baru tersimpan!', 'success');
-      closeModal('modal-add-unit');
       renderAll();
-      persistDashboardData();
+      persistDashboardData((ok, res) => {
+        if (submitButton) { submitButton.disabled = false; submitButton.innerHTML = submitButton.dataset.oldText || 'Simpan Unit'; }
+        if (ok) {
+          showToast('Unit berhasil disimpan ke Spreadsheet dan tampil di Ready Stock.', 'success');
+          closeModal('modal-add-unit');
+          const form = document.getElementById('form-add-unit'); if (form) form.reset();
+          renderAll();
+        } else {
+          state.units = state.units.filter(u => u.unitId !== newUnit.unitId);
+          renderAll();
+          showToast((res && res.message) || 'Unit gagal disimpan. Periksa koneksi Apps Script.', 'error');
+        }
+      });
     }
 
     
