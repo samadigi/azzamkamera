@@ -1143,10 +1143,34 @@
 
   <!-- JavaScript Application Engine -->
   <script>
-    // URL deployment Google Apps Script (backend).
-    // Catatan: URL ini baru disimpan sebagai konfigurasi; integrasi API diperlukan agar
-    // frontend yang di-host di GitHub dapat membaca/menyimpan data ke Apps Script.
+    // URL Web App Apps Script backend. Pastikan URL ini adalah deployment terbaru.
     const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzWqTLGchGk1XVn4ekkbzKRrTG-qj0-uMWVbSgMJmhdAOJmdY-NBc8-xplKSKFpCg5J/exec";
+    let apiToken = sessionStorage.getItem("azzamApiToken") || "";
+    let apiRequestCounter = 0;
+    function callGasApi(params, callback) {
+      const cb = "azzamJsonp_" + (++apiRequestCounter) + "_" + Date.now();
+      window[cb] = function(data) { try { callback(data); } finally { delete window[cb]; script.remove(); } };
+      const script = document.createElement("script");
+      params.callback = cb;
+      script.onerror = function() { delete window[cb]; script.remove(); callback({status:"error",message:"Tidak dapat terhubung ke Apps Script. Periksa URL deployment."}); };
+      script.src = GAS_WEBAPP_URL + "?" + new URLSearchParams(params).toString();
+      document.head.appendChild(script);
+    }
+    function submitGasForm(params, callback) {
+      let frame = document.getElementById("azzam-save-frame");
+      if (!frame) { frame = document.createElement("iframe"); frame.name = "azzam-save-frame"; frame.id = "azzam-save-frame"; frame.style.display = "none"; document.body.appendChild(frame); }
+      if (callback) {
+        const handler = function(event) {
+          if (!event.data || event.data.type !== 'AZZAM_API_RESULT') return;
+          window.removeEventListener('message', handler);
+          callback(event.data.data || {status:'error',message:'Respons API kosong.'});
+        };
+        window.addEventListener('message', handler);
+      }
+      const form = document.createElement("form"); form.method = "POST"; form.action = GAS_WEBAPP_URL; form.target = frame.name; form.style.display = "none";
+      Object.keys(params).forEach(k => { const input = document.createElement("input"); input.name = k; input.value = typeof params[k] === "string" ? params[k] : JSON.stringify(params[k]); form.appendChild(input); });
+      document.body.appendChild(form); form.submit(); form.remove();
+    }
 
     let state = {
       currentUser: null,
@@ -1180,18 +1204,35 @@
     const nowStamp = formatDateTime(new Date());
 
     const mockUnits = [
-      { unitId: 'UT-1001', sku: 'CAM-CAN1200D-01', barcode: '8990001001', model: 'Canon EOS 1200D Kit 18-55mm', category: 'DSLR', condition: 'Mulus 95%', kelengkapan: 'Dus, Charger, Strap', status: 'IN_STOCK', hargaBeli: 2100000, ongkir: 35000, servis: 150000, aksesoris: 50000, totalHPP: 2335000, hargaJual: 3100000, seller: 'Toko Kamera Surabaya', resi: 'JP88291002', serialCamera: 'SN-CAN-991201', serialLens: 'SN-LENS-88120', createdAt: nowStamp },
-      { unitId: 'UT-1002', sku: 'CAM-SONYA6000-01', barcode: '8990001002', model: 'Sony A6000 Body Only Black', category: 'Mirrorless', condition: 'Sedang 88%', kelengkapan: 'Charger Original, Baterai x2', status: 'OTW', hargaBeli: 3800000, ongkir: 45000, servis: 0, aksesoris: 0, totalHPP: 3845000, hargaJual: 4700000, seller: 'Customer Direct', resi: 'JNE-99218271', serialCamera: 'SN-SONY-77319', serialLens: '-', createdAt: nowStamp },
-      { unitId: 'UT-0998', sku: 'CAM-FUJXT20-01', barcode: '8990000998', model: 'Fujifilm X-T20 Body Silver', category: 'Mirrorless', condition: 'Mulus Like New', kelengkapan: 'Fullset Box', status: 'SOLD', hargaBeli: 4200000, ongkir: 100000, servis: 0, aksesoris: 0, totalHPP: 4300000, hargaJual: 5200000, seller: 'Kamera Malang', resi: 'JNE-102911', serialCamera: 'SN-FUJ-88122', serialLens: '-', createdAt: nowStamp, soldAt: nowStamp, customerName: 'Rian Pratama' }
+      {unitId:'UT-1001',sku:'CAM-CAN1200D-01',barcode:'8990001001',model:'Canon EOS 1200D Kit 18-55mm',category:'DSLR',condition:'Mulus 95%',kelengkapan:'Dus, Charger, Strap',status:'IN_STOCK',hargaBeli:2100000,ongkir:35000,servis:150000,aksesoris:50000,totalHPP:2335000,hargaJual:3100000,seller:'Toko Kamera Surabaya',resi:'JP88291002',serialCamera:'SN-CAN-991201',serialLens:'SN-LENS-88120',createdAt:nowStamp},
+      {unitId:'UT-1002',sku:'CAM-SONYA6000-01',barcode:'8990001002',model:'Sony A6000 Body Only Black',category:'Mirrorless',condition:'Sedang 88%',kelengkapan:'Charger Original, Baterai x2',status:'OTW',hargaBeli:3800000,ongkir:45000,servis:0,aksesoris:0,totalHPP:3845000,hargaJual:4700000,seller:'Customer Direct',resi:'JNE-99218271',serialCamera:'SN-SONY-77319',serialLens:'-',createdAt:nowStamp},
+      {unitId:'UT-0998',sku:'CAM-FUJXT20-01',barcode:'8990000998',model:'Fujifilm X-T20 Body Silver',category:'Mirrorless',condition:'Mulus Like New',kelengkapan:'Fullset Box',status:'SOLD',hargaBeli:4200000,ongkir:100000,servis:0,aksesoris:0,totalHPP:4300000,hargaJual:5200000,seller:'Kamera Malang',resi:'JNE-102911',serialCamera:'SN-FUJ-88122',serialLens:'-',createdAt:nowStamp,soldAt:nowStamp,customerName:'Rian Pratama'},
+      {unitId:'UT-1004',sku:'CAM-NIKOND5600-01',barcode:'8990001004',model:'Nikon D5600 Kit 18-55mm',category:'DSLR',condition:'Mulus 90%',kelengkapan:'Body, Lensa, Baterai, Charger',status:'IN_STOCK',hargaBeli:3900000,ongkir:50000,servis:100000,aksesoris:25000,totalHPP:4075000,hargaJual:4950000,seller:'Bursa Kamera Bandung',resi:'-',serialCamera:'SN-NIK-560045',serialLens:'SN-NIKL-550045',createdAt:nowStamp},
+      {unitId:'UT-1005',sku:'CAM-SONYA7II-01',barcode:'8990001005',model:'Sony A7 II Body',category:'Mirrorless Full Frame',condition:'Mulus 92%',kelengkapan:'Body, Baterai, Charger',status:'SERVICE',hargaBeli:6200000,ongkir:50000,servis:350000,aksesoris:0,totalHPP:6600000,hargaJual:7600000,seller:'Dimas Kamera',resi:'-',serialCamera:'SN-A7II-00921',serialLens:'-',createdAt:nowStamp}
     ];
-
     const mockSales = [
-      { saleId: 'SL-5001', dateTime: nowStamp, unitId: 'UT-0998', model: 'Fujifilm X-T20 Body Silver', sku: 'CAM-FUJXT20-01', channel: 'Shopee', customer: 'Rian Pratama', admin: 'Owner Toko', price: 5200000, discount: 100000, netOmzet: 5100000, hpp: 4300000, profit: 800000, bonusAdmin: 50000 }
+      {saleId:'SL-5001',dateTime:nowStamp,unitId:'UT-0998',model:'Fujifilm X-T20 Body Silver',sku:'CAM-FUJXT20-01',channel:'Shopee',customer:'Rian Pratama',admin:'Owner Toko',price:5200000,discount:100000,netOmzet:5100000,hpp:4300000,profit:800000,bonusAdmin:50000},
+      {saleId:'SL-5002',dateTime:nowStamp,unitId:'UT-0990',model:'Canon EOS M50 Kit',sku:'CAM-CANM50-02',channel:'Offline Store',customer:'Nadia Putri',admin:'Admin Operasional',price:5900000,discount:0,netOmzet:5900000,hpp:4850000,profit:1050000,bonusAdmin:52500},
+      {saleId:'SL-5003',dateTime:nowStamp,unitId:'UT-0988',model:'Sony A6300 Body',sku:'CAM-SONA6300-03',channel:'Instagram / WA',customer:'Fajar Ramadhan',admin:'Admin Operasional',price:4800000,discount:150000,netOmzet:4650000,hpp:3900000,profit:750000,bonusAdmin:37500}
     ];
-
+    const mockMembers = [
+      {memberId:'MBR-001',name:'Rian Pratama',phone:'081200000101',referralCode:'AZZAM-RIAN',totalValue:5100000,points:510,createdAt:nowStamp},
+      {memberId:'MBR-002',name:'Nadia Putri',phone:'081200000102',referralCode:'AZZAM-NADIA',totalValue:5900000,points:590,createdAt:nowStamp},
+      {memberId:'MBR-003',name:'Fajar Ramadhan',phone:'081200000103',referralCode:'AZZAM-FAJAR',totalValue:4650000,points:465,createdAt:nowStamp},
+      {memberId:'MBR-004',name:'Dewi Anggraini',phone:'081200000104',referralCode:'AZZAM-DEWI',totalValue:0,points:0,createdAt:nowStamp}
+    ];
+    const mockExpenses = [
+      {expenseId:'EXP-001',dateTime:nowStamp,kategori:'Operasional - Internet',nominal:350000,keterangan:'Tagihan internet toko (dummy)',admin:'Owner Toko',tipe:'keluar'},
+      {expenseId:'EXP-002',dateTime:nowStamp,kategori:'Operasional - Packing',nominal:125000,keterangan:'Bubble wrap dan kardus (dummy)',admin:'Admin Operasional',tipe:'keluar'},
+      {expenseId:'EXP-003',dateTime:nowStamp,kategori:'Kas Masuk',nominal:500000,keterangan:'Setoran modal demo (dummy)',admin:'Owner Toko',tipe:'masuk'}
+    ];
+    const mockServis = [
+      {servisId:'SRV-1001',model:'Sony A7 II Body',teknisi:'Bengkel Kamera Jaya',kerusakan:'Shutter kadang macet',biaya:350000,status:'Proses Servis',dateTimeMasuk:nowStamp},
+      {servisId:'SRV-1002',model:'Canon EOS 700D',teknisi:'Teknisi Andi',kerusakan:'Pembersihan sensor',biaya:175000,status:'Menunggu QC',dateTimeMasuk:nowStamp}
+    ];
     const mockUsers = [
-      { userId: 'USR-01', username: 'admin', password: 'admin123', name: 'Owner Toko (Super Admin)', role: 'super_admin' },
-      { userId: 'USR-02', username: 'kasir', password: 'kasir123', name: 'Admin Kasir Toko', role: 'admin_toko' }
+      {userId:'USR-OWNER',username:'owner',password:'owner123',name:'Owner Toko',role:'owner',active:true},
+      {userId:'USR-ADMIN',username:'admin',password:'admin123',name:'Admin Operasional',role:'admin',active:true}
     ];
 
     window.onload = function() {
@@ -1204,41 +1245,43 @@
       const htmlEl = document.documentElement;
       const modeLabel = document.getElementById('theme-mode-label');
       if (htmlEl.classList.contains('dark')) {
-        htmlEl.classList.remove('dark');
-        htmlEl.classList.add('light');
+        htmlEl.classList.remove('dark'); htmlEl.classList.add('light');
         if (modeLabel) modeLabel.innerText = 'Light';
       } else {
-        htmlEl.classList.remove('light');
-        htmlEl.classList.add('dark');
+        htmlEl.classList.remove('light'); htmlEl.classList.add('dark');
         if (modeLabel) modeLabel.innerText = 'Dark';
       }
     }
 
+    function loadMockData() {
+      state.units = JSON.parse(JSON.stringify(mockUnits));
+      state.sales = JSON.parse(JSON.stringify(mockSales));
+      state.members = JSON.parse(JSON.stringify(mockMembers));
+      state.expenses = JSON.parse(JSON.stringify(mockExpenses));
+      state.servis = JSON.parse(JSON.stringify(mockServis));
+      state.users = JSON.parse(JSON.stringify(mockUsers));
+    }
+
     function checkEnvironment() {
-      if (typeof google === 'undefined' || !google.script || !google.script.run) {
-        state.isMock = true;
-        state.units = []; state.sales = []; state.members = []; state.expenses = []; state.servis = []; state.users = [];
-        showToast('Frontend ini harus dibuka dari URL Web App Apps Script agar tersambung ke Google Sheets.', 'error');
-      } else {
-        state.isMock = false;
-        fetchServerData();
-      }
+      // Frontend di GitHub selalu menggunakan API Apps Script; tidak memakai data dummy.
+      state.isMock = false;
+      const savedUser = sessionStorage.getItem('azzamCurrentUser');
+      if (apiToken && savedUser) { try { state.currentUser = JSON.parse(savedUser); completeLogin(); } catch (e) { apiToken=''; sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser'); } }
     }
 
     function fetchServerData() {
-      google.script.run
-        .withSuccessHandler((response) => {
-          if (response && response.status === "success") {
-            state.units = response.units || [];
-            state.sales = response.sales || [];
-            state.members = response.members || [];
-            state.expenses = response.expenses || [];
-            state.servis = response.servis || [];
-            state.users = response.users || mockUsers;
-            if (state.currentUser) renderAll();
-          }
-        })
-        .getDashboardData(state.currentUser ? state.currentUser.role : 'admin');
+      if (!apiToken) return;
+      callGasApi({action:'data', token:apiToken}, response => {
+        if (response && response.status === 'success') {
+          state.units = response.units || []; state.sales = response.sales || [];
+          state.members = response.members || []; state.expenses = response.expenses || [];
+          state.servis = response.servis || []; state.users = response.users || [];
+          if (state.currentUser) renderAll();
+        } else {
+          apiToken = ''; sessionStorage.removeItem('azzamApiToken'); sessionStorage.removeItem('azzamCurrentUser');
+          showToast((response && response.message) || 'Sesi berakhir. Silakan login kembali.', 'error');
+        }
+      });
     }
 
     function handleLogin(e) {
@@ -1247,33 +1290,15 @@
       const pInput = document.getElementById('login-password').value;
       const errorDiv = document.getElementById('login-error');
       errorDiv.classList.add('hidden');
-
-      if (state.isMock) {
-        const demoUsers = [
-          { username: 'owner', password: 'owner123', name: 'Owner Toko', role: 'owner' },
-          { username: 'admin', password: 'admin123', name: 'Admin Operasional', role: 'admin' }
-        ];
-        const matched = demoUsers.find(u => u.username === uInput && u.password === pInput && u.active !== false);
-        if (matched) {
-          state.currentUser = matched;
-          completeLogin();
+      submitGasForm({action:'login', username:uInput, password:pInput}, res => {
+        if (res && res.status === 'success') {
+          apiToken = res.token || ''; sessionStorage.setItem('azzamApiToken', apiToken);
+          state.currentUser = res.user; sessionStorage.setItem('azzamCurrentUser', JSON.stringify(res.user)); completeLogin();
         } else {
           errorDiv.classList.remove('hidden');
+          showToast((res && res.message) || 'Username atau password salah.', 'error');
         }
-        return;
-      }
-
-      google.script.run
-        .withSuccessHandler((res) => {
-          if (res && res.status === 'success') {
-            state.currentUser = res.user;
-            completeLogin();
-          } else {
-            errorDiv.classList.remove('hidden');
-          }
-        })
-        .withFailureHandler(() => errorDiv.classList.remove('hidden'))
-        .loginUser(uInput, pInput);
+      });
     }
 
     function completeLogin() {
@@ -1560,11 +1585,13 @@
       persistDashboardData();
     }
     function persistDashboardData() {
-      // Persist when opened inside Apps Script. GitHub static hosting requires a configured API endpoint.
-      if (typeof google !== 'undefined' && google.script && google.script.run) {
-        google.script.run.withFailureHandler(err => showToast('Gagal menyimpan ke database: ' + (err && err.message ? err.message : 'error'), 'error'))
-          .saveDashboardData({ units: state.units, sales: state.sales, members: state.members, expenses: state.expenses, servis: state.servis, users: state.users }, isOwner() ? 'owner' : 'admin');
-      }
+      if (!apiToken || !state.currentUser) return;
+      const payload = {units:state.units, sales:state.sales, members:state.members,
+        expenses:state.expenses, servis:state.servis, users:state.users};
+      submitGasForm({action:'save', token:apiToken, payload:JSON.stringify(payload)}, res => {
+        if (res && res.status === 'success') showToast('Data berhasil disimpan ke Spreadsheet.', 'success');
+        else showToast((res && res.message) || 'Gagal menyimpan ke Spreadsheet.', 'error');
+      });
     }
 
     function renderServisTable() {
