@@ -2176,12 +2176,19 @@
     }
 
     function approveOTW(unitId) {
-      const u = state.units.find(x => x.unitId === unitId);
-      if (u) {
-        u.status = 'IN_STOCK';
-        showToast(`Unit ${u.sku} masuk ke Stok Ready!`, 'success');
-        renderAll();
-      }
+      const u = state.units.find(x => String(x.unitId) === String(unitId));
+      if (!u) return showToast('Unit tidak ditemukan.', 'error');
+      if (!apiToken) return showToast('Sesi login tidak aktif. Silakan login ulang.', 'error');
+      const oldStatus = u.status;
+      const buttons = Array.from(document.querySelectorAll('button')).filter(b => (b.getAttribute('onclick') || '').includes(`approveOTW('${unitId}')`));
+      buttons.forEach(b => { b.disabled = true; b.dataset.oldText = b.innerHTML; b.textContent = 'Memproses...'; });
+      callGasApi({action:'approveUnit',token:apiToken,unitId:unitId}, res => {
+        buttons.forEach(b => { b.disabled = false; b.innerHTML = b.dataset.oldText || 'Verifikasi QC'; });
+        if (res && res.status === 'success') {
+          u.status = 'IN_STOCK'; renderAll();
+          showToast(`Unit ${u.sku} disetujui dan masuk Ready Stock.`, 'success');
+        } else { u.status = oldStatus; showToast((res && res.message) || 'Gagal menyetujui unit.', 'error'); }
+      });
     }
 
     function saveNewUnit(e) {
@@ -2197,8 +2204,8 @@
         category: 'Kamera',
         condition: document.getElementById('add-condition').value.trim(),
         kelengkapan: document.getElementById('add-kelengkapan').value.trim(),
-        // Unit baru langsung masuk Ready Stock agar terlihat pada tab default Inventaris.
-        status: 'IN_STOCK',
+        // Unit baru harus masuk antrean OTW dan menunggu persetujuan Owner/QC.
+        status: 'OTW',
         hargaBeli: Number(document.getElementById('add-harga-beli').value) || 0,
         ongkir: Number(document.getElementById('add-ongkir').value) || 0,
         servis: 0,
@@ -2213,19 +2220,17 @@
       };
       const submitButton = e.submitter || document.querySelector('#modal-add-unit button[type="submit"]');
       if (submitButton) { submitButton.disabled = true; submitButton.dataset.oldText = submitButton.innerHTML; submitButton.innerHTML = 'Menyimpan...'; }
-      state.units.push(newUnit);
-      renderAll();
-      persistDashboardData((ok, res) => {
+      // Endpoint khusus menambahkan satu baris saja, jauh lebih cepat daripada menyimpan ulang semua koleksi.
+      callGasApi({action:'addUnit',token:apiToken,unit:JSON.stringify(newUnit)}, res => {
         if (submitButton) { submitButton.disabled = false; submitButton.innerHTML = submitButton.dataset.oldText || 'Simpan Unit'; }
-        if (ok) {
-          showToast('Unit berhasil disimpan ke Spreadsheet dan tampil di Ready Stock.', 'success');
+        if (res && res.status === 'success') {
+          state.units.push(newUnit);
           closeModal('modal-add-unit');
           const form = document.getElementById('form-add-unit'); if (form) form.reset();
           renderAll();
+          showToast('Unit tersimpan di Spreadsheet sebagai OTW. Menunggu persetujuan QC.', 'success');
         } else {
-          state.units = state.units.filter(u => u.unitId !== newUnit.unitId);
-          renderAll();
-          showToast((res && res.message) || 'Unit gagal disimpan. Periksa koneksi Apps Script.', 'error');
+          showToast((res && res.message) || 'Unit gagal disimpan. Periksa URL/izin Apps Script.', 'error');
         }
       });
     }
